@@ -1,0 +1,29 @@
+{
+  "name": "dreamup-qa-pipeline",
+  "version": "1.0.0",
+  "description": "AI agent for automated browser game QA testing",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "keywords": [
+    "qa",
+    "testing",
+    "browser-automation",
+    "ai-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.0.1",
+    "openai": "^6.8.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}
