@@ -6,7 +6,13 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "bun run src/index.ts",
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --watch src/index.ts",
+    "test": "bun test",
+    "test:basic": "bun run test/basic-test.ts",
+    "test:browser": "bun run test/test-browser.ts",
+    "test:detector": "bun run test/test-detector.ts",
+    "test:interactor": "bun run test/test-interactor.ts",
+    "test:all": "bun run test:basic && bun run test:browser && bun run test:detector && bun run test:interactor"
   },
   "keywords": [
     "qa",
