@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game QA Agent Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎮 Game QA Agent Dashboard</h1>
+      <p class="subtitle">Automated browser testing for web games</p>
+    </header>
+
+    <section class="input-section">
+      <h2>Enter URLs to Test</h2>
+      <textarea 
+        id="urlInput" 
+        placeholder="Enter game URLs, one per line&#10;&#10;Example:&#10;https://playtictactoe.net/&#10;https://isnoahalive.com/games/snake/"
+        rows="6"
+      ></textarea>
+      <button id="runButton" class="primary-button">Run Tests</button>
+    </section>
+
+    <section class="queue-stats">
+      <div class="stat">
+        <span class="stat-label">Pending</span>
+        <span id="pendingCount" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Running</span>
+        <span id="runningCount" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Completed</span>
+        <span id="completedCount" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Failed</span>
+        <span id="failedCount" class="stat-value">0</span>
+      </div>
+    </section>
+
+    <section class="current-run" id="currentRunSection" style="display: none;">
+      <h2>Current Run</h2>
+      <div class="current-url">
+        <strong>URL:</strong> <span id="currentUrl">-</span>
+      </div>
+      <div class="progress-bar">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      
+      <div class="split-view">
+        <div class="logs-container">
+          <h3>Live Logs</h3>
+          <div id="logsArea" class="logs-area"></div>
+        </div>
+        
+        <div class="screenshots-container">
+          <h3>Screenshots</h3>
+          <div id="screenshotsGallery" class="screenshots-gallery"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="history-section">
+      <h2>Run History</h2>
+      <div id="historyTable" class="history-table">
+        <p class="empty-state">No runs yet. Enter URLs above to get started!</p>
+      </div>
+    </section>
+  </div>
+
+  <div id="connectionStatus" class="connection-status disconnected">
+    Disconnected
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
