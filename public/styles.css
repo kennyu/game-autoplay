@@ -126,8 +126,8 @@ header h1 {
   color: #2c3e50;
 }
 
-/* Current Run */
-.current-run {
+/* Running Jobs Section */
+.running-jobs-section {
   background: white;
   padding: 30px;
   border-radius: 8px;
@@ -135,22 +135,89 @@ header h1 {
   margin-bottom: 30px;
 }
 
-.current-run h2 {
+.running-jobs-section h2 {
   margin-bottom: 20px;
   font-size: 1.5rem;
   color: #2c3e50;
 }
 
-.current-url {
-  font-size: 1.1rem;
-  margin-bottom: 20px;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 6px;
+.running-jobs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
 }
 
-.current-url strong {
+/* Job Section (Collapsible) */
+.job-section {
+  border: 2px solid #e0e6ed;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.job-section:hover {
+  border-color: #3498db;
+}
+
+.job-header {
+  background: #f8f9fa;
+  padding: 15px 20px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.job-header:hover {
+  background: #ecf0f1;
+}
+
+.job-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.job-status {
+  font-size: 1.5rem;
+}
+
+.job-url {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 1.1rem;
+}
+
+.job-timer {
   color: #7f8c8d;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.job-toggle {
+  font-size: 1.2rem;
+  color: #7f8c8d;
+  transition: transform 0.2s;
+}
+
+.job-content {
+  padding: 20px;
+  max-height: 800px;
+  overflow: hidden;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
+
+.job-section.collapsed .job-content {
+  max-height: 0;
+  padding: 0 20px;
+}
+
+.job-content h4 {
+  font-size: 1rem;
+  color: #2c3e50;
+  margin-bottom: 10px;
 }
 
 /* Progress Bar */
@@ -253,7 +320,7 @@ header h1 {
   box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
 
-/* History */
+/* History / Results Section */
 .history-section {
   background: white;
   padding: 30px;
@@ -261,42 +328,204 @@ header h1 {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.history-section h2 {
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 20px;
+}
+
+.history-header h2 {
   font-size: 1.5rem;
   color: #2c3e50;
 }
 
-.history-table {
+.secondary-button {
+  padding: 10px 20px;
+  background: #ecf0f1;
+  color: #2c3e50;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.secondary-button:hover {
+  background: #d5dbdc;
+}
+
+.results-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.history-row {
-  display: grid;
-  grid-template-columns: 50px 1fr auto auto auto;
   gap: 15px;
-  align-items: center;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  font-size: 0.95rem;
 }
 
-.history-status {
+/* Result Cards */
+.result-card {
+  background: #f8f9fa;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.result-card.collapsed .result-content {
+  display: none;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.result-header:hover {
+  background: #e9ecef;
+}
+
+.result-header.success {
+  border-left: 4px solid #2ecc71;
+}
+
+.result-header.failed {
+  border-left: 4px solid #e74c3c;
+}
+
+.result-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex: 1;
+}
+
+.result-status {
   font-size: 1.5rem;
 }
 
-.history-url {
-  font-weight: 500;
+.result-url {
+  font-weight: 600;
   color: #2c3e50;
+  font-size: 1rem;
 }
 
-.history-duration,
-.history-actions,
-.history-screenshots {
+.result-meta {
   color: #7f8c8d;
+  font-size: 0.9rem;
+}
+
+.result-toggle {
+  font-size: 1.2rem;
+  color: #95a5a6;
+}
+
+.result-content {
+  padding: 20px;
+  border-top: 1px solid #dee2e6;
+  background: white;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Actions List */
+.actions-list h4 {
+  margin-bottom: 15px;
+  color: #2c3e50;
+  font-size: 1rem;
+}
+
+.action-item {
+  display: grid;
+  grid-template-columns: 30px 30px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.action-item.failed {
+  background: #ffebee;
+}
+
+.action-number {
+  color: #95a5a6;
+  font-weight: 600;
+}
+
+.action-status {
+  font-size: 1.1rem;
+}
+
+.action-text {
+  color: #2c3e50;
+  word-break: break-word;
+}
+
+.action-error {
+  grid-column: 2 / -1;
+  color: #e74c3c;
+  font-size: 0.85rem;
+  margin-top: 5px;
+}
+
+/* Screenshot Gallery */
+.screenshots-grid h4 {
+  margin-bottom: 15px;
+  color: #2c3e50;
+  font-size: 1rem;
+}
+
+.screenshot-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.screenshot-item {
+  position: relative;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+
+.screenshot-item:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.screenshot-item.before {
+  border: 2px solid #3498db;
+}
+
+.screenshot-item.after {
+  border: 2px solid #2ecc71;
+}
+
+.screenshot-item img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.screenshot-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  text-align: center;
 }
 
 .empty-state {
@@ -304,6 +533,10 @@ header h1 {
   padding: 60px 20px;
   color: #95a5a6;
   font-size: 1.1rem;
+}
+
+.empty-state.error {
+  color: #e74c3c;
 }
 
 /* Connection Status */
@@ -345,9 +578,12 @@ header h1 {
     grid-template-columns: 1fr;
   }
   
-  .history-row {
+  .result-content {
     grid-template-columns: 1fr;
-    gap: 8px;
+  }
+  
+  .screenshot-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
   
   header h1 {

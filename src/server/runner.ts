@@ -14,6 +14,7 @@ export class JobRunner {
   private server: DashboardServer;
   private queue: JobQueue;
   private isRunning: boolean = false;
+  private activeJobCount: number = 0;
 
   constructor(server: DashboardServer, queue: JobQueue) {
     this.server = server;
@@ -21,7 +22,7 @@ export class JobRunner {
   }
 
   /**
-   * Start processing jobs from the queue
+   * Start processing jobs from the queue (parallel execution)
    */
   async start() {
     if (this.isRunning) {
@@ -30,19 +31,28 @@ export class JobRunner {
     }
 
     this.isRunning = true;
-    logger.info('Job runner started');
+    logger.info('🚀 Job runner started (parallel mode)');
 
-    // Process jobs sequentially
+    // Process jobs in parallel
     while (this.isRunning) {
-      const nextJob = this.queue.getNextJob();
-
-      if (!nextJob) {
-        // No more jobs, wait a bit and check again
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        continue;
+      // Check if we can start more jobs
+      if (this.queue.canStartMoreJobs()) {
+        const jobsToStart = this.queue.getNextJobs();
+        
+        if (jobsToStart.length > 0) {
+          logger.info(`Starting ${jobsToStart.length} jobs...`);
+          
+          // Start all jobs in parallel (fire and forget)
+          for (const job of jobsToStart) {
+            this.runJob(job).catch((error) => {
+              logger.error(`Unhandled error in job ${job.id}:`, error);
+            });
+          }
+        }
       }
 
-      await this.runJob(nextJob);
+      // Wait before checking again
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
@@ -55,9 +65,11 @@ export class JobRunner {
   }
 
   /**
-   * Run a single job
+   * Run a single job (can run in parallel with other jobs)
    */
   private async runJob(job: Job) {
+    this.activeJobCount++;
+    
     try {
       // Mark job as started
       this.queue.startJob(job.id);
@@ -145,9 +157,12 @@ export class JobRunner {
         type: 'queue-update',
         data: stats,
       });
+      
+      this.activeJobCount--;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(`Job failed: ${job.id} - ${errorMsg}`);
+      this.activeJobCount--;
 
       // Mark job as failed
       this.queue.failJob(job.id, errorMsg);

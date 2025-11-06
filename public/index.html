@@ -42,32 +42,20 @@
       </div>
     </section>
 
-    <section class="current-run" id="currentRunSection" style="display: none;">
-      <h2>Current Run</h2>
-      <div class="current-url">
-        <strong>URL:</strong> <span id="currentUrl">-</span>
-      </div>
-      <div class="progress-bar">
-        <div id="progressFill" class="progress-fill"></div>
-      </div>
-      
-      <div class="split-view">
-        <div class="logs-container">
-          <h3>Live Logs</h3>
-          <div id="logsArea" class="logs-area"></div>
-        </div>
-        
-        <div class="screenshots-container">
-          <h3>Screenshots</h3>
-          <div id="screenshotsGallery" class="screenshots-gallery"></div>
-        </div>
+    <section class="running-jobs-section" id="runningJobsSection" style="display: none;">
+      <h2>Running Jobs</h2>
+      <div id="runningJobsContainer" class="running-jobs-container">
+        <!-- Dynamic job sections will be added here -->
       </div>
     </section>
 
     <section class="history-section">
-      <h2>Run History</h2>
-      <div id="historyTable" class="history-table">
-        <p class="empty-state">No runs yet. Enter URLs above to get started!</p>
+      <div class="history-header">
+        <h2>Test Results</h2>
+        <button id="refreshResults" class="secondary-button">🔄 Refresh</button>
+      </div>
+      <div id="resultsContainer" class="results-container">
+        <p class="empty-state">Loading results...</p>
       </div>
     </section>
   </div>

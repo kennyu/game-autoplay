@@ -16,6 +16,13 @@ export interface QAConfig {
   // Model configuration
   modelName?: string; // e.g., 'gpt-4o', 'claude-3-5-sonnet-20241022'
   modelProvider?: 'openai' | 'anthropic';
+  // Custom output directory (overrides outputDir if set)
+  customOutputDir?: string;
+  // Parallel execution limits
+  maxConcurrentJobs: {
+    LOCAL: number;
+    BROWSERBASE: number;
+  };
 }
 
 export interface ConsoleLog {

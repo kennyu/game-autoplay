@@ -30,8 +30,8 @@ export interface QueueStats {
 export class JobQueue {
   private jobs: Map<string, Job> = new Map();
   private queue: string[] = []; // Job IDs in order
-  private currentJobId: string | null = null;
-  private isProcessing: boolean = false;
+  private runningJobIds: Set<string> = new Set();
+  private maxConcurrent: number = 5; // Default, can be updated
 
   /**
    * Add URLs to the queue
@@ -80,20 +80,44 @@ export class JobQueue {
   }
 
   /**
-   * Get next job from queue
+   * Set max concurrent jobs
    */
-  getNextJob(): Job | null {
-    if (this.queue.length === 0) {
-      return null;
+  setMaxConcurrent(max: number) {
+    this.maxConcurrent = max;
+    logger.info(`Max concurrent jobs set to: ${max}`);
+  }
+
+  /**
+   * Get next jobs that can be started (up to max concurrent limit)
+   */
+  getNextJobs(): Job[] {
+    const availableSlots = this.maxConcurrent - this.runningJobIds.size;
+    if (availableSlots <= 0 || this.queue.length === 0) {
+      return [];
     }
 
-    const jobId = this.queue[0];
-    if (!jobId) {
-      return null;
+    const jobsToStart: Job[] = [];
+    const count = Math.min(availableSlots, this.queue.length);
+
+    for (let i = 0; i < count; i++) {
+      const jobId = this.queue[i];
+      if (jobId) {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          jobsToStart.push(job);
+        }
+      }
     }
-    
-    const job = this.jobs.get(jobId);
-    return job || null;
+
+    return jobsToStart;
+  }
+
+  /**
+   * Get next job from queue (legacy method for single job)
+   */
+  getNextJob(): Job | null {
+    const jobs = this.getNextJobs();
+    return jobs.length > 0 ? (jobs[0] || null) : null;
   }
 
   /**
@@ -107,12 +131,12 @@ export class JobQueue {
 
     job.status = 'running';
     job.startedAt = new Date();
-    this.currentJobId = jobId;
+    this.runningJobIds.add(jobId);
 
     // Remove from queue
     this.queue = this.queue.filter((id) => id !== jobId);
 
-    logger.info(`Job started: ${jobId} - ${job.url}`);
+    logger.info(`Job started: ${jobId} - ${job.url} (${this.runningJobIds.size}/${this.maxConcurrent} concurrent)`);
     return job;
   }
 
@@ -130,9 +154,9 @@ export class JobQueue {
     job.duration = metadata.duration;
     job.actionCount = metadata.actionCount;
     job.screenshotCount = metadata.screenshotCount;
-    this.currentJobId = null;
+    this.runningJobIds.delete(jobId);
 
-    logger.info(`Job completed: ${jobId} - ${job.url} (${metadata.duration}ms)`);
+    logger.info(`Job completed: ${jobId} - ${job.url} (${metadata.duration}ms, ${this.runningJobIds.size}/${this.maxConcurrent} still running)`);
     return job;
   }
 
@@ -148,12 +172,12 @@ export class JobQueue {
     job.status = 'failed';
     job.completedAt = new Date();
     job.error = error;
-    this.currentJobId = null;
+    this.runningJobIds.delete(jobId);
 
     // Remove from queue
     this.queue = this.queue.filter((id) => id !== jobId);
 
-    logger.error(`Job failed: ${jobId} - ${job.url}: ${error}`);
+    logger.error(`Job failed: ${jobId} - ${job.url}: ${error} (${this.runningJobIds.size}/${this.maxConcurrent} still running)`);
     return job;
   }
 
@@ -199,13 +223,25 @@ export class JobQueue {
   }
 
   /**
-   * Get current running job
+   * Get current running jobs
+   */
+  getRunningJobs(): Job[] {
+    const runningJobs: Job[] = [];
+    for (const jobId of this.runningJobIds) {
+      const job = this.jobs.get(jobId);
+      if (job) {
+        runningJobs.push(job);
+      }
+    }
+    return runningJobs;
+  }
+
+  /**
+   * Get current running job (legacy method for single job)
    */
   getCurrentJob(): Job | null {
-    if (!this.currentJobId) {
-      return null;
-    }
-    return this.jobs.get(this.currentJobId) || null;
+    const runningJobs = this.getRunningJobs();
+    return runningJobs.length > 0 ? (runningJobs[0] || null) : null;
   }
 
   /**
@@ -216,17 +252,17 @@ export class JobQueue {
   }
 
   /**
-   * Check if processing
+   * Check if any jobs are running
    */
-  isActive(): boolean {
-    return this.isProcessing;
+  hasRunningJobs(): boolean {
+    return this.runningJobIds.size > 0;
   }
 
   /**
-   * Set processing state
+   * Check if can start more jobs
    */
-  setProcessing(state: boolean) {
-    this.isProcessing = state;
+  canStartMoreJobs(): boolean {
+    return this.runningJobIds.size < this.maxConcurrent && this.queue.length > 0;
   }
 }
 
