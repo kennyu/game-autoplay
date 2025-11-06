@@ -795,3 +795,5 @@ Stagehand provides a comprehensive toolkit for AI-powered browser automation wit
 Integration patterns include using `observe()` before `act()` to cache and validate actions, scoping `extract()` with observe results to reduce token usage 10x, chaining multiple operations with error handling and retries, and combining Stagehand agents with external APIs through MCP for enhanced capabilities. The framework supports both Browserbase cloud sessions for production deployments and local browsers for development, with extensive configuration options including viewport size, download handling, proxy support, custom user profiles, and experimental features like shadow DOM traversal. Built-in observability through history tracking, comprehensive metrics, and customizable logging enables monitoring, debugging, and optimization of browser automation workflows at scale.
 
 
+
+
