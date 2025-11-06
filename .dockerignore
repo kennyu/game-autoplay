@@ -1,0 +1,21 @@
+# Don't copy these to Docker image
+node_modules
+output
+.git
+.github
+.cursor
+*.md
+.env
+.env.local
+.env.*.local
+docs/
+memory-bank/
+plans/
+test/
+
+# Keep these
+!README.md
+!package.json
+!bun.lockb
+
+

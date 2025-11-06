@@ -1,0 +1,51 @@
+# Fly.io configuration for Game Autoplay Agent Dashboard
+
+app = "game-autoplay-dashboard"
+primary_region = "dfw"  # Dallas - change to your preferred region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+  BROWSER_MODE = "LOCAL"  # Use LOCAL browser on Fly machine
+  HEADLESS = "true"       # Always headless in production
+  MODEL_PROVIDER = "openai"
+  MODEL_NAME = "gpt-4.1-mini"  # More cost-effective for production
+
+# HTTP service configuration
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  # Health check
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/"
+
+# VM resources - needs more memory for browser automation
+[vm]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 2048  # 2GB RAM for browser + Node
+
+# Persistent volume for screenshots (optional)
+# Uncomment if you want to persist output across deploys
+# [mounts]
+#   source = "game_autoplay_data"
+#   destination = "/app/output"
+
+
