@@ -2,10 +2,12 @@
  * Browser agent orchestrator - coordinates browser session and game actions
  */
 
+import { EventEmitter } from 'events';
 import type { QAConfig } from '../types/index.js';
 import type { ConsoleLog } from '../types/index.js';
 import { BrowserSession } from './browser.js';
 import { GameActions, type SimpleActionResult } from './actions.js';
+import { ScreenAnalyzer, type ScreenAnalysis } from './screen-analyzer.js';
 import { logger } from '../utils/logger.js';
 import { BrowserError } from '../utils/errors.js';
 
@@ -27,15 +29,17 @@ enum GameState {
   GAME = 'GAME',     // Playing the game - making moves
 }
 
-export class BrowserAgent {
+export class BrowserAgent extends EventEmitter {
   private config: QAConfig;
   private session: BrowserSession | null = null;
   private actions: GameActions | null = null;
+  private analyzer: ScreenAnalyzer | null = null;
   private consoleLogs: ConsoleLog[] = [];
   private currentState: GameState = GameState.MENU;
-  private stateConfidenceCount: number = 0; // Prevent rapid state flipping
+  private actionHistory: string[] = []; // Track what we've tried
 
   constructor(config: QAConfig) {
+    super();
     this.config = config;
   }
 
@@ -48,22 +52,24 @@ export class BrowserAgent {
 
     try {
       logger.info(`Starting browser agent for: ${gameUrl}`);
+      this.emit('log', { level: 'info', message: `Starting browser agent for: ${gameUrl}`, timestamp: new Date() });
 
       // Initialize browser session
       this.session = new BrowserSession(this.config);
       await this.session.initialize();
+      this.emit('log', { level: 'info', message: 'Browser session initialized', timestamp: new Date() });
 
       // Navigate to game URL
       await this.session.navigate(gameUrl);
+      this.emit('log', { level: 'info', message: `Navigated to ${gameUrl}`, timestamp: new Date() });
 
-      // Get Stagehand instance for actions (has act, observe methods)
+      // Get Stagehand instance (has act, observe, extract methods)
       const stagehand = this.session.getStagehand();
       this.actions = new GameActions(stagehand);
-      
-      // Get Playwright page for console logging
-      const page = this.session.getPage();
+      this.analyzer = new ScreenAnalyzer(stagehand);
 
-      // Set up console logging
+      // Get raw Playwright page for console logging and cleanup
+      const page = this.session.getPage();
       this.setupConsoleLogging(page);
 
       // Clean up page - remove ads and distractions
@@ -74,15 +80,18 @@ export class BrowserAgent {
 
       const duration = Date.now() - startTime;
       logger.info(`Agent completed successfully in ${duration}ms`);
-
-      return {
+      
+      const result: AgentResult = {
         gameUrl,
         duration,
         actions: actionResults,
         consoleLogs: this.consoleLogs,
-        screenshots: [],
+        screenshots: actionResults.flatMap(a => [a.screenshotBefore, a.screenshotAfter].filter(Boolean) as string[]),
         success: true,
       };
+
+      this.emit('complete', result);
+      return result;
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -104,19 +113,19 @@ export class BrowserAgent {
   }
 
   /**
-   * Main gameplay loop - runs for 15 seconds with intelligent actions and screenshots
+   * Main gameplay loop - CUA (Computer Use Agent) mode
+   * LLM analyzes screen and decides actions intelligently
    */
   private async gameplayLoop(actionResults: SimpleActionResult[]): Promise<void> {
-    if (!this.actions) {
-      throw new BrowserError('Actions not initialized');
+    if (!this.actions || !this.analyzer) {
+      throw new BrowserError('Actions or Analyzer not initialized');
     }
 
     const startTime = Date.now();
-    const maxDuration = 15000; // 15 seconds as specified in plan
+    const maxDuration = 15000; // 15 seconds
     let actionCount = 0;
 
-    logger.info('Starting gameplay loop (15 seconds)...');
-    logger.info(`Initial state: ${this.currentState}`);
+    logger.info('🤖 Starting CUA Agent (LLM-driven decision making)...');
 
     // Find game container once at start
     const gameElements = await this.actions.findElements(
@@ -134,34 +143,100 @@ export class BrowserAgent {
     while (Date.now() - startTime < maxDuration) {
       try {
         actionCount++;
+        logger.info(`\n--- Action Cycle #${actionCount} ---`);
 
-        // Analyze what actions are available
-        const availableActions = await this.analyzeGameActions();
+        // STEP 1: LLM analyzes the screen and decides what to do
+        // Pass full action history with success/failure info for better context
+        const contextualHistory = this.actionHistory.map((action, i) => {
+          const prevResult = actionResults[i];
+          return prevResult 
+            ? `${action} ${prevResult.success ? '✓' : '✗'}`
+            : action;
+        });
+        
+        const analysis: ScreenAnalysis = await this.analyzer.analyzeScreen(
+          contextualHistory
+        );
 
-        if (availableActions.length === 0) {
-          logger.warn('No actions found, waiting...');
-          await this.actions.wait(2000);
-          continue;
+        // Update state based on LLM's assessment
+        if (analysis.gameState === 'menu' || analysis.gameState === 'loading') {
+          this.currentState = GameState.MENU;
+        } else {
+          this.currentState = GameState.GAME;
         }
 
-        const actionToTake = availableActions[0];
-        if (!actionToTake) {
-          logger.warn('No valid action found, waiting...');
-          await this.actions.wait(2000);
-          continue;
+        // STEP 2: Validate the LLM's recommended action
+        const actionToTake = analysis.recommendedAction;
+        
+        // Check if we have a valid action and sufficient confidence
+        if (!actionToTake || actionToTake === 'Unable to analyze' || analysis.confidence < 0.4) {
+          if (actionCount === 1) {
+            // First attempt failed - retry analysis once
+            logger.warn(`⚠️ Low confidence or no action (${(analysis.confidence * 100).toFixed(0)}%), retrying analysis...`);
+            await this.actions.wait(2000);
+            continue;
+          } else {
+            // Use simple fallback for subsequent failures
+            logger.warn('⚠️ Using fallback action - click any visible button');
+            analysis.recommendedAction = 'click on any visible button or start button';
+          }
         }
 
-        logger.info(`[${this.currentState}] Action #${actionCount}: ${actionToTake}`);
+        logger.info(`[${this.currentState}] 🎯 LLM Decision: ${analysis.recommendedAction}`);
+        this.emit('log', { level: 'info', message: `LLM Decision: ${analysis.recommendedAction}`, timestamp: new Date() });
+        
+        logger.info(`💭 Reasoning: ${analysis.reasoning}`);
+        this.emit('log', { level: 'info', message: `Reasoning: ${analysis.reasoning}`, timestamp: new Date() });
 
         // Capture BEFORE screenshot
         const beforePath = await this.captureGameScreenshot(
           `action-${actionCount}-before.png`,
           gameContainer
         );
+        
+        if (beforePath) {
+          this.emit('screenshot', { path: beforePath, type: 'before', actionCount });
+        }
 
-        // Execute the action
-        const result = await this.actions.findAndClick(actionToTake);
+        // STEP 3: Execute the LLM's recommended action
+        // Detect if action is a keyboard press or a click
+        let result: any;
+        const keyPressMatch = analysis.recommendedAction.match(/^press\s+(\w+)/i);
+        
+        if (keyPressMatch) {
+          // Extract the key name (e.g., "ArrowUp", "Space", "Enter", "w")
+          const key = keyPressMatch[1];
+          logger.info(`⌨️  Detected keyboard action: ${key}`);
+          result = await this.actions.pressKey(key);
+        } else {
+          // Default to click action
+          result = await this.actions.findAndClick(analysis.recommendedAction);
+        }
+        
         result.screenshotBefore = beforePath;
+        
+        this.emit('action', { 
+          count: actionCount, 
+          action: analysis.recommendedAction, 
+          success: result.success,
+          timestamp: new Date()
+        });
+
+        // Track action history with result for context in next iteration
+        const actionSummary = `${analysis.recommendedAction} (${result.success ? 'succeeded' : 'failed'})`;
+        this.actionHistory.push(actionSummary);
+        if (this.actionHistory.length > 5) {
+          this.actionHistory.shift(); // Keep only last 5 actions
+        }
+
+        // Log the updated history for debugging
+        logger.debug(`Action history: ${this.actionHistory.join(' → ')}`);
+        
+        // If we keep failing, provide more explicit feedback
+        const recentFailures = actionResults.slice(-3).filter(a => !a.success).length;
+        if (recentFailures >= 2) {
+          logger.warn(`⚠️ ${recentFailures} recent failures - agent might be stuck`);
+        }
 
         // Wait for changes to render
         await this.actions.wait(500);
@@ -172,30 +247,35 @@ export class BrowserAgent {
           gameContainer
         );
         result.screenshotAfter = afterPath;
+        
+        if (afterPath) {
+          this.emit('screenshot', { path: afterPath, type: 'after', actionCount });
+        }
 
         actionResults.push(result);
 
         if (beforePath && afterPath) {
-          logger.info(`Screenshots: ${beforePath} → ${afterPath}`);
+          logger.info(`📸 Screenshots: ${beforePath} → ${afterPath}`);
         }
 
-        // Wait before next action
-        await this.actions.wait(2000);
+        // Adaptive wait time based on game state
+        const waitTime = analysis.gameState === 'playing' ? 1500 : 2500;
+        await this.actions.wait(waitTime);
       } catch (error) {
-        logger.warn('Error in gameplay loop, continuing...');
+        logger.warn('⚠️ Error in gameplay loop, continuing...');
         await this.actions.wait(1000);
       }
 
       // Safety check - don't do too many actions
       if (actionCount >= 10) {
-        logger.info('Reached action limit (10), stopping loop');
+        logger.info('✋ Reached action limit (10), stopping loop');
         break;
       }
     }
 
     const elapsed = Date.now() - startTime;
     logger.info(
-      `Gameplay loop completed. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
+      `\n✅ CUA Agent completed. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
     );
   }
 
@@ -242,7 +322,7 @@ export class BrowserAgent {
     filename: string,
     gameContainer?: any
   ): Promise<string> {
-    const outputDir = this.config.outputDir || './output';
+    const outputDir = this.config.customOutputDir || this.config.outputDir || './output';
 
     try {
       // Ensure output directory exists
@@ -279,208 +359,6 @@ export class BrowserAgent {
     }
   }
 
-  /**
-   * Detect current game state by observing the page
-   * Uses multiple detection methods for robustness
-   */
-  private async detectGameState(): Promise<GameState> {
-    if (!this.actions || !this.session) {
-      return GameState.MENU;
-    }
-
-    try {
-      const page = this.session.getPage();
-      
-      // Method 1: AI Vision Detection
-      const visionState = await this.detectStateByVision();
-      
-      // Method 2: DOM Analysis
-      const domState = await this.detectStateByDOM(page);
-      
-      // Method 3: URL Analysis
-      const urlState = this.detectStateByURL(page);
-      
-      // Score the results
-      let menuScore = 0;
-      let gameScore = 0;
-      
-      if (visionState === GameState.MENU) menuScore += 3; // Vision is most reliable
-      if (visionState === GameState.GAME) gameScore += 3;
-      
-      if (domState === GameState.MENU) menuScore += 2;
-      if (domState === GameState.GAME) gameScore += 2;
-      
-      if (urlState === GameState.MENU) menuScore += 1;
-      if (urlState === GameState.GAME) gameScore += 1;
-      
-      const detectedState = gameScore > menuScore ? GameState.GAME : GameState.MENU;
-      
-      logger.info(`State detection scores - MENU: ${menuScore}, GAME: ${gameScore} → ${detectedState}`);
-      
-      // Prevent rapid state flipping - require 2 consecutive detections
-      if (detectedState !== this.currentState) {
-        this.stateConfidenceCount++;
-        if (this.stateConfidenceCount >= 2) {
-          this.stateConfidenceCount = 0;
-          return detectedState;
-        } else {
-          logger.info(`State change detected but waiting for confirmation (${this.stateConfidenceCount}/2)`);
-          return this.currentState; // Stay in current state
-        }
-      } else {
-        this.stateConfidenceCount = 0; // Reset if state is stable
-      }
-      
-      return detectedState;
-    } catch (error) {
-      logger.warn('Error detecting game state, defaulting to current state');
-      return this.currentState;
-    }
-  }
-
-  /**
-   * Detect state using AI vision (Stagehand observe)
-   */
-  private async detectStateByVision(): Promise<GameState> {
-    if (!this.actions) return GameState.MENU;
-    
-    try {
-      // Look for menu-related elements
-      const menuObservation = await this.actions.findElements(
-        'find start button, play button, play again button, next level button, or menu screen'
-      );
-
-      // Look for game-related elements
-      const gameObservation = await this.actions.findElements(
-        'find game board, playing field, game grid, game canvas, or active gameplay area'
-      );
-
-      // Score based on what we found
-      const menuCount = menuObservation?.length || 0;
-      const gameCount = gameObservation?.length || 0;
-      
-      logger.debug(`Vision detection - Menu elements: ${menuCount}, Game elements: ${gameCount}`);
-
-      if (gameCount > 0 && menuCount === 0) {
-        return GameState.GAME;
-      } else if (menuCount > 0 && gameCount === 0) {
-        return GameState.MENU;
-      } else if (gameCount > menuCount) {
-        return GameState.GAME;
-      } else {
-        return GameState.MENU;
-      }
-    } catch (error) {
-      logger.debug('Vision detection failed');
-      return GameState.MENU;
-    }
-  }
-
-  /**
-   * Detect state by analyzing DOM structure
-   */
-  private async detectStateByDOM(page: any): Promise<GameState> {
-    try {
-      const domAnalysis = await page.evaluate(() => {
-        // Look for common game-related elements
-        const canvas = document.querySelector('canvas');
-        const gameBoard = document.querySelector('[class*="board"], [id*="board"], [class*="game"], [id*="game"]');
-        
-        // Look for common menu elements
-        const startButton = document.querySelector('button[class*="start"], button[id*="start"], button:contains("Start")');
-        const playButton = document.querySelector('button[class*="play"], button[id*="play"], [class*="menu"]');
-        
-        // Check visibility and size
-        const hasLargeCanvas = canvas && canvas.getBoundingClientRect().width > 200;
-        const hasGameBoard = gameBoard && gameBoard.getBoundingClientRect().width > 200;
-        const hasMenuButton = startButton || playButton;
-        
-        return {
-          hasCanvas: !!canvas,
-          hasLargeCanvas,
-          hasGameBoard,
-          hasMenuButton,
-        };
-      });
-
-      logger.debug(`DOM detection - Canvas: ${domAnalysis.hasLargeCanvas}, Board: ${domAnalysis.hasGameBoard}, Menu: ${domAnalysis.hasMenuButton}`);
-
-      // Prioritize large canvas or game board as game indicators
-      if (domAnalysis.hasLargeCanvas || domAnalysis.hasGameBoard) {
-        return GameState.GAME;
-      }
-      
-      if (domAnalysis.hasMenuButton) {
-        return GameState.MENU;
-      }
-
-      return GameState.MENU;
-    } catch (error) {
-      logger.debug('DOM detection failed');
-      return GameState.MENU;
-    }
-  }
-
-  /**
-   * Detect state by analyzing URL patterns
-   */
-  private detectStateByURL(page: any): GameState {
-    try {
-      const url = page.url().toLowerCase();
-      
-      // Some games change URL params or hash when playing
-      if (url.includes('playing') || url.includes('game=active') || url.includes('#play')) {
-        logger.debug('URL detection → GAME');
-        return GameState.GAME;
-      }
-      
-      if (url.includes('menu') || url.includes('start')) {
-        logger.debug('URL detection → MENU');
-        return GameState.MENU;
-      }
-      
-      // URL doesn't help, return neutral (treated as MENU in scoring)
-      return GameState.MENU;
-    } catch (error) {
-      return GameState.MENU;
-    }
-  }
-
-  /**
-   * Analyze game to find specific actions based on current state
-   * Returns a list of action instructions to try
-   */
-  private async analyzeGameActions(): Promise<string[]> {
-    // Detect current state
-    const newState = await this.detectGameState();
-    
-    if (newState !== this.currentState) {
-      logger.info(`🔄 State transition: ${this.currentState} → ${newState}`);
-      this.currentState = newState;
-    }
-
-    if (this.currentState === GameState.MENU) {
-      // MENU STATE: Look for buttons to start/continue the game
-      return [
-        'click on the start button',
-        'click on the play button',
-        'click on play again button',
-        'click on next level button',
-        'click on continue button',
-        'click on 1P or single player button',
-      ];
-    } else {
-      // GAME STATE: Make gameplay moves
-      // For Tic-Tac-Toe specifically, but general enough for other games
-      return [
-        'click on an empty cell in the game board',
-        'click on an empty square in the grid',
-        'click on the center cell of the board',
-        'click on a corner cell of the board',
-        'click on any available space on the game board',
-      ];
-    }
-  }
 
   /**
    * Remove ads and non-game elements from the page

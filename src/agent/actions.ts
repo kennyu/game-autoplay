@@ -22,36 +22,47 @@ export class GameActions {
 
   /**
    * Find and click an element using natural language instruction
+   * Includes automatic retry logic for reliability
    */
-  async findAndClick(instruction: string): Promise<SimpleActionResult> {
-    try {
-      logger.info(`🎯 Attempting action: ${instruction}`);
+  async findAndClick(instruction: string, maxRetries: number = 2): Promise<SimpleActionResult> {
+    let lastError: string = '';
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`🎯 Attempting action (${attempt}/${maxRetries}): ${instruction}`);
 
-      // Stagehand's act() handles both observation and interaction
-      await this.stagehand.act(instruction);
+        // Stagehand act() handles both observation and interaction
+        await this.stagehand.act(instruction);
 
-      logger.info(`✅ Action succeeded: ${instruction}`);
+        logger.info(`✅ Action succeeded: ${instruction}`);
 
-      return {
-        success: true,
-        action: instruction,
-        timestamp: new Date(),
-      };
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      logger.error(`❌ Action failed: ${instruction}`, {
-        error: errorMsg,
-        stack: errorStack?.split('\n').slice(0, 3).join('\n'), // First 3 lines
-      });
-
-      return {
-        success: false,
-        action: instruction,
-        timestamp: new Date(),
-        error: errorMsg,
-      };
+        return {
+          success: true,
+          action: instruction,
+          timestamp: new Date(),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        
+        if (attempt < maxRetries) {
+          logger.warn(`⚠️ Attempt ${attempt}/${maxRetries} failed, retrying in 1s...`);
+          await this.wait(1000);
+        } else {
+          logger.error(`❌ Action failed after ${maxRetries} attempts: ${instruction}`, {
+            error: lastError,
+            stack: errorStack?.split('\n').slice(0, 3).join('\n'), // First 3 lines
+          });
+        }
+      }
     }
+
+    return {
+      success: false,
+      action: instruction,
+      timestamp: new Date(),
+      error: lastError,
+    };
   }
 
   /**
@@ -74,29 +85,89 @@ export class GameActions {
   }
 
   /**
-   * Press a keyboard key using Stagehand's act
+   * Press a keyboard key - optimized for canvas-based games
+   * Uses Playwright's page.keyboard.press for direct key events
    */
-  async pressKey(key: string): Promise<SimpleActionResult> {
+  async pressKey(key: string, maxRetries: number = 2): Promise<SimpleActionResult> {
+    let lastError: string = '';
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`⌨️  Attempting key press (${attempt}/${maxRetries}): ${key}`);
+
+        // Try to get the raw page object for direct keyboard access
+        // This is more reliable for canvas games than going through Stagehand act
+        const stagehandAny = this.stagehand as any;
+        let page = null;
+        
+        // Try to get page from different possible locations
+        if (stagehandAny.page) {
+          page = stagehandAny.page;
+        } else if (stagehandAny.context) {
+          const context = stagehandAny.context;
+          const pages = context.pages();
+          page = pages[0];
+        }
+
+        if (page && page.keyboard) {
+          // Direct keyboard press - works better for canvas games
+          await page.keyboard.press(key);
+          logger.info(`✅ Key pressed successfully: ${key}`);
+        } else {
+          // Fallback to Stagehand act
+          await this.stagehand.act(`press the ${key} key`);
+          logger.info(`✅ Key pressed via Stagehand: ${key}`);
+        }
+
+        return {
+          success: true,
+          action: `press ${key}`,
+          timestamp: new Date(),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        
+        if (attempt < maxRetries) {
+          logger.warn(`⚠️ Key press attempt ${attempt}/${maxRetries} failed, retrying...`);
+          await this.wait(500);
+        } else {
+          logger.error(`❌ Key press failed after ${maxRetries} attempts: ${key}`, { error: lastError });
+        }
+      }
+    }
+
+    return {
+      success: false,
+      action: `press ${key}`,
+      timestamp: new Date(),
+      error: lastError,
+    };
+  }
+
+  /**
+   * Click on canvas or image element - for canvas-based games
+   */
+  async clickCanvas(instruction: string = 'click on the game canvas'): Promise<SimpleActionResult> {
     try {
-      logger.debug(`Pressing key: ${key}`);
-
-      // Use Stagehand act for keyboard input
-      await this.stagehand.act(`press the ${key} key`);
-
-      logger.debug(`Key pressed: ${key}`);
-
+      logger.info(`🎨 Attempting canvas click: ${instruction}`);
+      
+      // Try to find and click canvas or image element
+      await this.stagehand.act(instruction);
+      
+      logger.info(`✅ Canvas click succeeded`);
+      
       return {
         success: true,
-        action: `Press ${key}`,
+        action: instruction,
         timestamp: new Date(),
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to press key: ${key} - ${errorMsg}`);
-
+      logger.warn(`⚠️ Canvas click failed: ${errorMsg}`);
+      
       return {
         success: false,
-        action: `Press ${key}`,
+        action: instruction,
         timestamp: new Date(),
         error: errorMsg,
       };
