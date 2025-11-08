@@ -28,5 +28,7 @@ output/
 screenshots/
 reports/
 
+# Cursor specific directories
 .cursor/
 memory-bank/
+docs/
