@@ -7,6 +7,8 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
+    "qa": "bun --env-file=.env.local qa.ts",
+    "server": "bun --env-file=.env.local server.ts",
     "test": "bun test",
     "test:basic": "bun run test/basic-test.ts",
     "test:browser": "bun run test/test-browser.ts",

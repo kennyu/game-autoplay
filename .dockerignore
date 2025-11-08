@@ -1,21 +1,46 @@
 # Don't copy these to Docker image
-node_modules
-output
-.git
-.github
-.cursor
-*.md
+# Environment variables, we will be putting these in manually
 .env
 .env.local
-.env.*.local
-docs/
+.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test output
+output/
+screenshots/
+reports/
+
+# Cursor specific directories
+.cursor/
 memory-bank/
+docs/
 plans/
-test/
 
 # Keep these
 !README.md
 !package.json
 !bun.lockb
+
+
 
 
