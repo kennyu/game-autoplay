@@ -15,9 +15,11 @@ export interface SimpleActionResult {
 
 export class GameActions {
   private stagehand: any;
+  private page: any; // Direct Playwright page reference
 
-  constructor(stagehand: any) {
+  constructor(stagehand: any, page?: any) {
     this.stagehand = stagehand;
+    this.page = page; // Store page for direct keyboard/mouse access
   }
 
   /**
@@ -95,29 +97,18 @@ export class GameActions {
       try {
         logger.info(`⌨️  Attempting key press (${attempt}/${maxRetries}): ${key}`);
 
-        // Try to get the raw page object for direct keyboard access
-        // This is more reliable for canvas games than going through Stagehand act
-        const stagehandAny = this.stagehand as any;
-        let page = null;
-        
-        // Try to get page from different possible locations
-        if (stagehandAny.page) {
-          page = stagehandAny.page;
-        } else if (stagehandAny.context) {
-          const context = stagehandAny.context;
-          const pages = context.pages();
-          page = pages[0];
+        // Use stored page reference (most reliable)
+        if (!this.page) {
+          throw new Error('Page not available for keyboard actions');
         }
 
-        if (page && page.keyboard) {
-          // Direct keyboard press - works better for canvas games
-          await page.keyboard.press(key);
-          logger.info(`✅ Key pressed successfully: ${key}`);
-        } else {
-          // Fallback to Stagehand act
-          await this.stagehand.act(`press the ${key} key`);
-          logger.info(`✅ Key pressed via Stagehand: ${key}`);
+        if (!this.page.keyboard) {
+          throw new Error('Page keyboard API not available');
         }
+
+        // Direct Playwright keyboard press - bypasses Stagehand's element lookup
+        await this.page.keyboard.press(key);
+        logger.info(`✅ Key pressed successfully via Playwright: ${key}`);
 
         return {
           success: true,

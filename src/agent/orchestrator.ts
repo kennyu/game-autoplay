@@ -63,13 +63,18 @@ export class BrowserAgent extends EventEmitter {
       await this.session.navigate(gameUrl);
       this.emit('log', { level: 'info', message: `Navigated to ${gameUrl}`, timestamp: new Date() });
 
-      // Get Stagehand instance (has act, observe, extract methods)
+      // Get Stagehand instance for actions (has act, observe methods)
       const stagehand = this.session.getStagehand();
-      this.actions = new GameActions(stagehand);
+      
+      // Get Playwright page for direct keyboard/mouse access and console logging
+      const page = this.session.getPage();
+      
+      // Pass both stagehand and page to actions
+      // Page enables direct Playwright keyboard API (bypasses Stagehand's element lookup)
+      this.actions = new GameActions(stagehand, page);
       this.analyzer = new ScreenAnalyzer(stagehand);
 
-      // Get raw Playwright page for console logging and cleanup
-      const page = this.session.getPage();
+      // Set up console logging
       this.setupConsoleLogging(page);
 
       // Clean up page - remove ads and distractions
@@ -122,10 +127,11 @@ export class BrowserAgent extends EventEmitter {
     }
 
     const startTime = Date.now();
-    const maxDuration = 15000; // 15 seconds
+    const maxDuration = this.config.maxExecutionTimeMs;
+    const maxActions = this.config.maxActions;
     let actionCount = 0;
 
-    logger.info('🤖 Starting CUA Agent (LLM-driven decision making)...');
+    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms, ${maxActions} actions)...`);
 
     // Find game container once at start
     const gameElements = await this.actions.findElements(
@@ -200,12 +206,12 @@ export class BrowserAgent extends EventEmitter {
 
         // STEP 3: Execute the LLM's recommended action
         // Detect if action is a keyboard press or a click
-        let result: any;
+        let result: SimpleActionResult;
         const keyPressMatch = analysis.recommendedAction.match(/^press\s+(\w+)/i);
         
         if (keyPressMatch) {
           // Extract the key name (e.g., "ArrowUp", "Space", "Enter", "w")
-          const key = keyPressMatch[1];
+          const key = keyPressMatch[1] || 'Space';
           logger.info(`⌨️  Detected keyboard action: ${key}`);
           result = await this.actions.pressKey(key);
         } else {
@@ -266,16 +272,19 @@ export class BrowserAgent extends EventEmitter {
         await this.actions.wait(1000);
       }
 
-      // Safety check - don't do too many actions
-      if (actionCount >= 10) {
-        logger.info('✋ Reached action limit (10), stopping loop');
+      // Check action limit
+      if (actionCount >= maxActions) {
+        logger.info(`✋ Reached action limit (${maxActions}), stopping loop`);
         break;
       }
     }
 
     const elapsed = Date.now() - startTime;
+    const reason = actionCount >= maxActions 
+      ? `action limit (${maxActions})`
+      : `time limit (${maxDuration}ms)`;
     logger.info(
-      `\n✅ CUA Agent completed. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
+      `\n✅ CUA Agent completed. Stopped by ${reason}. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
     );
   }
 

@@ -6,8 +6,8 @@ import type { QAConfig } from '../types/index.js';
 
 export function loadConfig(): QAConfig {
   return {
-    maxExecutionTimeMs: 15000,
-    maxActions: 100,
+    maxExecutionTimeMs: parseInt(process.env.MAX_EXECUTION_TIME_MS || '15000', 10),
+    maxActions: parseInt(process.env.MAX_ACTIONS || '10', 10),
     browserbaseApiKey: process.env.BROWSERBASE_API_KEY || '',
     browserbaseProjectId: process.env.BROWSERBASE_PROJECT_ID || '',
     openaiApiKey: process.env.OPENAI_API_KEY || '',
