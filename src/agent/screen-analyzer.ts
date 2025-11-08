@@ -127,7 +127,23 @@ Respond ONLY with valid JSON, no other text.`;
 
       return analysis;
     } catch (error) {
-      logger.error('Failed to analyze screen', error as Error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error('❌ Screen analysis failed:', errorMsg);
+      
+      // Log specific error types
+      if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
+        logger.error('🔑 OpenAI API authentication failed - check your OPENAI_API_KEY');
+      } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+        logger.error('⏳ OpenAI API rate limit - waiting before retry');
+      } else if (errorMsg.includes('model')) {
+        logger.error('🤖 Model error - check MODEL_NAME in config (currently using gpt-5)');
+      } else if (errorMsg.includes('schema') || errorMsg.includes('validation')) {
+        logger.error('📋 Schema validation failed - LLM response format incorrect');
+      } else {
+        logger.error('💥 Unexpected error:', error);
+      }
+      
+      logger.warn('⚠️ Using fallback action - blind click attempt');
       
       // Fallback to basic observation if analysis fails
       return {

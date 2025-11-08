@@ -3,11 +3,12 @@
  */
 
 import { EventEmitter } from 'events';
-import type { QAConfig } from '../types/index.js';
+import type { QAConfig, QAResult } from '../types/index.js';
 import type { ConsoleLog } from '../types/index.js';
 import { BrowserSession } from './browser.js';
 import { GameActions, type SimpleActionResult } from './actions.js';
 import { ScreenAnalyzer, type ScreenAnalysis } from './screen-analyzer.js';
+import { GameEvaluator } from '../evaluation/evaluator.js';
 import { logger } from '../utils/logger.js';
 import { BrowserError } from '../utils/errors.js';
 
@@ -46,7 +47,7 @@ export class BrowserAgent extends EventEmitter {
   /**
    * Run the browser agent on a game URL
    */
-  async run(gameUrl: string): Promise<AgentResult> {
+  async run(gameUrl: string): Promise<QAResult> {
     const startTime = Date.now();
     const actionResults: SimpleActionResult[] = [];
 
@@ -86,7 +87,7 @@ export class BrowserAgent extends EventEmitter {
       const duration = Date.now() - startTime;
       logger.info(`Agent completed successfully in ${duration}ms`);
       
-      const result: AgentResult = {
+      const agentResult: AgentResult = {
         gameUrl,
         duration,
         actions: actionResults,
@@ -95,14 +96,19 @@ export class BrowserAgent extends EventEmitter {
         success: true,
       };
 
-      this.emit('complete', result);
-      return result;
+      // Evaluate the results using LLM
+      logger.info('🧠 Evaluating game playability...');
+      const evaluator = new GameEvaluator(this.config.openaiApiKey);
+      const qaResult = await evaluator.evaluate(agentResult);
+
+      this.emit('complete', qaResult);
+      return qaResult;
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('Agent failed', error as Error);
 
-      return {
+      const agentResult: AgentResult = {
         gameUrl,
         duration,
         actions: actionResults,
@@ -111,6 +117,38 @@ export class BrowserAgent extends EventEmitter {
         success: false,
         error: errorMsg,
       };
+
+      // Still evaluate even if agent failed - helps identify the issue
+      try {
+        const evaluator = new GameEvaluator(this.config.openaiApiKey);
+        return await evaluator.evaluate(agentResult);
+      } catch (evalError) {
+        logger.error('Evaluation also failed', evalError as Error);
+        // Return minimal QAResult if evaluation fails
+        return {
+          gameUrl,
+          status: 'fail',
+          playabilityScore: 0,
+          checks: {
+            gameLoaded: false,
+            controlsResponsive: false,
+            gameStable: false,
+          },
+          issues: [{
+            severity: 'critical',
+            description: `Agent execution failed: ${errorMsg}`,
+            evidence: String(error),
+          }],
+          duration,
+          timestamp: new Date(),
+          screenshots: [],
+          metadata: {
+            actionCount: actionResults.length,
+            successfulActions: actionResults.filter(a => a.success).length,
+            consoleErrors: this.consoleLogs.filter(l => l.type === 'error').length,
+          },
+        };
+      }
     } finally {
       // Always cleanup
       await this.cleanup();
@@ -128,10 +166,10 @@ export class BrowserAgent extends EventEmitter {
 
     const startTime = Date.now();
     const maxDuration = this.config.maxExecutionTimeMs;
-    const maxActions = this.config.maxActions;
     let actionCount = 0;
 
-    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms, ${maxActions} actions)...`);
+    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms / ${Math.floor(maxDuration/1000)}s, unlimited actions)...`);
+    logger.info(`⏱️ Will stop at: ${new Date(startTime + maxDuration).toLocaleTimeString()}`);
 
     // Find game container once at start
     const gameElements = await this.actions.findElements(
@@ -149,7 +187,9 @@ export class BrowserAgent extends EventEmitter {
     while (Date.now() - startTime < maxDuration) {
       try {
         actionCount++;
-        logger.info(`\n--- Action Cycle #${actionCount} ---`);
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const remaining = Math.floor((maxDuration - (Date.now() - startTime)) / 1000);
+        logger.info(`\n--- Action Cycle #${actionCount} (${elapsed}s elapsed, ${remaining}s remaining) ---`);
 
         // STEP 1: LLM analyzes the screen and decides what to do
         // Pass full action history with success/failure info for better context
@@ -160,9 +200,11 @@ export class BrowserAgent extends EventEmitter {
             : action;
         });
         
+        logger.debug('Starting screen analysis...');
         const analysis: ScreenAnalysis = await this.analyzer.analyzeScreen(
           contextualHistory
         );
+        logger.debug('Screen analysis completed successfully');
 
         // Update state based on LLM's assessment
         if (analysis.gameState === 'menu' || analysis.gameState === 'loading') {
@@ -266,23 +308,47 @@ export class BrowserAgent extends EventEmitter {
 
         // Adaptive wait time based on game state
         const waitTime = analysis.gameState === 'playing' ? 1500 : 2500;
+        logger.debug(`Waiting ${waitTime}ms before next action...`);
         await this.actions.wait(waitTime);
+        
+        logger.debug(`Completed action ${actionCount}, continuing to next iteration...`);
       } catch (error) {
-        logger.warn('⚠️ Error in gameplay loop, continuing...');
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.error(`❌ Error in gameplay loop (action ${actionCount}):`, errorMsg);
+        logger.error('Full error:', error);
+        
+        // Push a failed action result
+        actionResults.push({
+          action: 'Error in loop',
+          success: false,
+          error: errorMsg,
+          timestamp: new Date(),
+        });
+        
+        logger.warn('⚠️ Continuing after error...');
         await this.actions.wait(1000);
       }
 
-      // Check action limit
-      if (actionCount >= maxActions) {
-        logger.info(`✋ Reached action limit (${maxActions}), stopping loop`);
+      // Check if we should continue (redundant with while condition, but explicit)
+      const timeElapsed = Date.now() - startTime;
+      const timeRemaining = maxDuration - timeElapsed;
+      
+      logger.debug(`⏱️ Time check: elapsed=${Math.floor(timeElapsed/1000)}s, remaining=${Math.floor(timeRemaining/1000)}s, maxDuration=${Math.floor(maxDuration/1000)}s`);
+      
+      if (timeRemaining <= 0) {
+        logger.info(`⏱️ Time limit reached in inner check, exiting loop`);
         break;
       }
+      
+      logger.debug(`Loop iteration complete. Actions: ${actionCount}, Time remaining: ${Math.floor(timeRemaining / 1000)}s`);
     }
+    
+    logger.info(`⏱️ While loop condition failed: Date.now()=${Date.now()}, startTime=${startTime}, elapsed=${Date.now() - startTime}ms, maxDuration=${maxDuration}ms`);
+
+    logger.info(`🏁 Gameplay loop ended. Total actions: ${actionCount}, Duration: ${Math.floor((Date.now() - startTime) / 1000)}s`);
 
     const elapsed = Date.now() - startTime;
-    const reason = actionCount >= maxActions 
-      ? `action limit (${maxActions})`
-      : `time limit (${maxDuration}ms)`;
+    const reason = `time limit (${maxDuration}ms)`;
     logger.info(
       `\n✅ CUA Agent completed. Stopped by ${reason}. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
     );
