@@ -31,3 +31,29 @@ export interface ConsoleLog {
   timestamp: Date;
 }
 
+export interface Issue {
+  severity: 'critical' | 'major' | 'minor';
+  description: string;
+  evidence?: string;
+}
+
+export interface QAResult {
+  gameUrl: string;
+  status: 'pass' | 'fail';
+  playabilityScore: number;  // 0-100
+  checks: {
+    gameLoaded: boolean;
+    controlsResponsive: boolean;
+    gameStable: boolean;
+  };
+  issues: Issue[];
+  duration: number;
+  timestamp: Date;
+  screenshots: string[];
+  metadata: {
+    actionCount: number;
+    successfulActions: number;
+    consoleErrors: number;
+  };
+}
+

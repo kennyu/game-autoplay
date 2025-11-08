@@ -5,6 +5,7 @@
 import { BrowserAgent } from '../agent/orchestrator.js';
 import { loadConfig } from '../config/index.js';
 import { logger } from '../utils/logger.js';
+import type { QAResult } from '../types/index.js';
 import type { DashboardServer } from './index.js';
 import type { Job, JobQueue } from './queue.js';
 import * as fs from 'fs';
@@ -125,7 +126,7 @@ export class JobRunner {
         });
       });
 
-      // Run the agent
+      // Run the agent (now returns QAResult with evaluation)
       const result = await agent.run(job.url);
 
       // Save run metadata
@@ -134,20 +135,27 @@ export class JobRunner {
       // Mark job as completed
       this.queue.completeJob(job.id, {
         duration: result.duration,
-        actionCount: result.actions.length,
+        actionCount: result.metadata.actionCount,
         screenshotCount: result.screenshots.length,
       });
 
-      // Broadcast job completed
+      // Broadcast job completed with evaluation results
       this.server.broadcast({
         type: 'job-completed',
         data: {
           jobId: job.id,
           url: job.url,
+          // Evaluation results
+          status: result.status,
+          playabilityScore: result.playabilityScore,
+          checks: result.checks,
+          issues: result.issues,
+          // Metadata
           duration: result.duration,
-          actionCount: result.actions.length,
+          actionCount: result.metadata.actionCount,
+          successfulActions: result.metadata.successfulActions,
+          consoleErrors: result.metadata.consoleErrors,
           screenshotCount: result.screenshots.length,
-          success: result.success,
         },
       });
 
@@ -197,28 +205,29 @@ export class JobRunner {
   }
 
   /**
-   * Save run metadata to JSON file
+   * Save run metadata to JSON file (now includes evaluation results)
    */
-  private async saveMetadata(job: Job, result: any): Promise<void> {
+  private async saveMetadata(job: Job, result: QAResult): Promise<void> {
     try {
       const metadata = {
         jobId: job.id,
         url: job.url,
         startedAt: job.startedAt,
         completedAt: new Date(),
+        timestamp: result.timestamp,
+        // Evaluation results
+        status: result.status,
+        playabilityScore: result.playabilityScore,
+        checks: result.checks,
+        issues: result.issues,
+        // Test metadata
         duration: result.duration,
-        actionCount: result.actions.length,
-        screenshotCount: result.screenshots.length,
-        success: result.success,
-        error: result.error,
-        actions: result.actions.map((a: any) => ({
-          action: a.action,
-          success: a.success,
-          timestamp: a.timestamp,
-          error: a.error,
-        })),
-        consoleLogs: result.consoleLogs,
+        actionCount: result.metadata.actionCount,
+        successfulActions: result.metadata.successfulActions,
+        consoleErrors: result.metadata.consoleErrors,
+        // Screenshots
         screenshots: result.screenshots,
+        screenshotCount: result.screenshots.length,
       };
 
       const metadataPath = path.join(job.outputDir, 'run-metadata.json');

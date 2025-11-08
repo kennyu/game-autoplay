@@ -246,10 +246,24 @@ class Dashboard {
     if (!this.activeJobs.has(data.jobId)) return;
     
     const gallery = document.querySelector(`[data-job-screenshots="${data.jobId}"]`);
-    if (!gallery) return;
+    if (!gallery) {
+      console.error('Screenshot gallery not found for job:', data.jobId);
+      return;
+    }
+    
+    console.log('📸 Received screenshot:', data.path, 'for job:', data.jobId);
     
     const img = document.createElement('img');
-    img.src = '/' + data.path;
+    
+    // Normalize path: remove leading ./, convert backslashes to forward slashes, ensure leading /
+    let normalizedPath = data.path.replace(/^\.\//, '').replace(/\\/g, '/');
+    if (!normalizedPath.startsWith('/')) {
+      normalizedPath = '/' + normalizedPath;
+    }
+    
+    console.log('📸 Normalized path:', normalizedPath);
+    
+    img.src = normalizedPath;
     img.alt = `${data.type} screenshot ${data.actionCount}`;
     img.title = `Action ${data.actionCount} - ${data.type}`;
     img.className = 'screenshot-thumb';
@@ -258,6 +272,20 @@ class Dashboard {
     img.addEventListener('click', () => {
       window.open(img.src, '_blank');
     });
+    
+    // Error handling
+    img.onerror = () => {
+      console.error('❌ Failed to load screenshot:', normalizedPath);
+      console.error('   Original path:', data.path);
+      img.style.opacity = '0.3';
+      img.style.border = '2px solid red';
+      img.alt = `⚠️ Failed to load ${data.type}`;
+    };
+    
+    // Success logging
+    img.onload = () => {
+      console.log('✅ Screenshot loaded successfully:', normalizedPath);
+    };
     
     gallery.appendChild(img);
   }
@@ -285,7 +313,22 @@ class Dashboard {
       clearInterval(job.timerInterval);
     }
     
-    this.addLogToJob(data.jobId, 'info', `✅ Completed in ${(data.duration / 1000).toFixed(1)}s - ${data.actionCount} actions, ${data.screenshotCount} screenshots`);
+    // Log evaluation results
+    const statusEmoji = data.status === 'pass' ? '✅' : '❌';
+    this.addLogToJob(data.jobId, 'info', `${statusEmoji} ${data.status.toUpperCase()} - Score: ${data.playabilityScore}/100`);
+    this.addLogToJob(data.jobId, 'info', `  ${data.checks.gameLoaded ? '✅' : '❌'} Game Loaded`);
+    this.addLogToJob(data.jobId, 'info', `  ${data.checks.controlsResponsive ? '✅' : '❌'} Controls Responsive`);
+    this.addLogToJob(data.jobId, 'info', `  ${data.checks.gameStable ? '✅' : '❌'} Game Stable`);
+    
+    if (data.issues && data.issues.length > 0) {
+      this.addLogToJob(data.jobId, 'warn', `Issues: ${data.issues.length}`);
+      data.issues.forEach(issue => {
+        const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'major' ? '🟡' : '🔵';
+        this.addLogToJob(data.jobId, 'warn', `  ${icon} ${issue.description}`);
+      });
+    }
+    
+    this.addLogToJob(data.jobId, 'info', `Completed in ${(data.duration / 1000).toFixed(1)}s - ${data.actionCount} actions, ${data.screenshotCount} screenshots`);
     
     // Update progress to 100%
     const progressFill = document.querySelector(`[data-job-progress="${data.jobId}"]`);
@@ -293,12 +336,12 @@ class Dashboard {
       progressFill.style.width = '100%';
     }
     
-    // Update job status icon
+    // Update job status icon based on evaluation
     const section = document.getElementById(`job-${data.jobId}`);
     if (section) {
       const statusIcon = section.querySelector('.job-status');
       if (statusIcon) {
-        statusIcon.textContent = '✅';
+        statusIcon.textContent = data.status === 'pass' ? '✅' : '❌';
       }
     }
     
@@ -412,8 +455,10 @@ class Dashboard {
     card.className = 'result-card';
     card.id = `result-${run.folder}`;
     
-    const status = run.success ? '✅' : '❌';
-    const statusClass = run.success ? 'success' : 'failed';
+    // Use evaluation status if available, fallback to old success field
+    const hasEvaluation = run.status !== undefined;
+    const status = hasEvaluation ? (run.status === 'pass' ? '✅' : '❌') : (run.success ? '✅' : '❌');
+    const statusClass = hasEvaluation ? run.status : (run.success ? 'success' : 'failed');
     const duration = (run.duration / 1000).toFixed(1);
     const date = new Date(run.startedAt).toLocaleString();
     
@@ -425,41 +470,87 @@ class Dashboard {
       url = run.url;
     }
     
+    // Build evaluation section if available
+    let evaluationHTML = '';
+    if (hasEvaluation) {
+      const scoreColor = run.playabilityScore >= 70 ? '#4ade80' : run.playabilityScore >= 50 ? '#fbbf24' : '#f87171';
+      evaluationHTML = `
+        <div class="evaluation-summary">
+          <div class="score-display" style="color: ${scoreColor};">
+            <span class="score-number">${run.playabilityScore}</span>
+            <span class="score-label">/100</span>
+          </div>
+          <div class="checks-list">
+            <div class="check-item ${run.checks.gameLoaded ? 'pass' : 'fail'}">
+              ${run.checks.gameLoaded ? '✅' : '❌'} Game Loaded <span class="check-points">(30pts)</span>
+            </div>
+            <div class="check-item ${run.checks.controlsResponsive ? 'pass' : 'fail'}">
+              ${run.checks.controlsResponsive ? '✅' : '❌'} Controls Responsive <span class="check-points">(40pts)</span>
+            </div>
+            <div class="check-item ${run.checks.gameStable ? 'pass' : 'fail'}">
+              ${run.checks.gameStable ? '✅' : '❌'} Game Stable <span class="check-points">(30pts)</span>
+            </div>
+          </div>
+          ${run.issues && run.issues.length > 0 ? `
+            <div class="issues-list">
+              <h5>Issues (${run.issues.length})</h5>
+              ${run.issues.map(issue => {
+                const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'major' ? '🟡' : '🔵';
+                return `
+                  <div class="issue-item ${issue.severity}">
+                    ${icon} <strong>[${issue.severity}]</strong> ${issue.description}
+                    ${issue.evidence ? `<div class="issue-evidence">${issue.evidence}</div>` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+    
     card.innerHTML = `
       <div class="result-header ${statusClass}" onclick="dashboard.toggleResult('${run.folder}')">
         <div class="result-info">
           <span class="result-status">${status}</span>
           <span class="result-url">${url}</span>
+          ${hasEvaluation ? `<span class="result-score">${run.playabilityScore}/100</span>` : ''}
           <span class="result-meta">${date} • ${duration}s • ${run.actionCount} actions</span>
         </div>
         <span class="result-toggle">▼</span>
       </div>
       <div class="result-content">
+        ${evaluationHTML}
         <div class="actions-list">
           <h4>Actions (${run.actionCount})</h4>
-          ${run.actions.map((action, i) => `
+          ${run.actions && run.actions.length > 0 ? run.actions.map((action, i) => `
             <div class="action-item ${action.success ? 'success' : 'failed'}">
               <span class="action-number">${i + 1}</span>
               <span class="action-status">${action.success ? '✅' : '❌'}</span>
               <span class="action-text">${action.action}</span>
               ${action.error ? `<span class="action-error">${action.error}</span>` : ''}
             </div>
-          `).join('')}
+          `).join('') : '<p class="empty-state">No action data available</p>'}
         </div>
         <div class="screenshots-grid">
-          <h4>Screenshots (${run.screenshotCount})</h4>
+          <h4>Screenshots (${run.screenshotCount || 0})</h4>
           <div class="screenshot-gallery">
-            ${run.screenshots.map((screenshot, i) => {
+            ${run.screenshots && run.screenshots.length > 0 ? run.screenshots.map((screenshot, i) => {
               const filename = screenshot.split(/[/\\]/).pop();
               const isBeforeAction = filename.includes('-before.');
               const label = filename.replace('.png', '').replace('action-', 'Action ').replace('-before', ' Before').replace('-after', ' After');
+              // Normalize path: remove leading ./, convert backslashes, ensure leading /
+              let normalizedPath = screenshot.replace(/^\.\//, '').replace(/\\/g, '/');
+              if (!normalizedPath.startsWith('/')) {
+                normalizedPath = '/' + normalizedPath;
+              }
               return `
                 <div class="screenshot-item ${isBeforeAction ? 'before' : 'after'}">
-                  <img src="/${screenshot.replace(/\\/g, '/')}" alt="${label}" onclick="window.open(this.src, '_blank')" />
+                  <img src="${normalizedPath}" alt="${label}" onclick="window.open(this.src, '_blank')" onerror="console.error('Failed to load:', this.src)" />
                   <span class="screenshot-label">${label}</span>
                 </div>
               `;
-            }).join('')}
+            }).join('') : '<p class="empty-state">No screenshots available</p>'}
           </div>
         </div>
       </div>

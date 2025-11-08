@@ -144,11 +144,14 @@ export class DashboardServer {
     const baseDir = isOutputDir ? '.' : this.config.publicDir;
     const filePath = isOutputDir ? pathname.slice(1) : `${baseDir}${pathname}`;
 
+    logger.debug(`Serving static file: pathname=${pathname}, isOutputDir=${isOutputDir}, filePath=${filePath}`);
+
     try {
       const file = Bun.file(filePath);
       const exists = await file.exists();
 
       if (!exists) {
+        logger.warn(`File not found: ${filePath}`);
         return new Response('Not Found', { status: 404 });
       }
 
@@ -156,12 +159,15 @@ export class DashboardServer {
       const ext = pathname.split('.').pop();
       const contentType = this.getContentType(ext || '');
 
+      logger.debug(`Serving file: ${filePath} (${contentType})`);
+
       return new Response(file, {
         headers: {
           'Content-Type': contentType,
         },
       });
     } catch (error) {
+      logger.error('Error serving static file:', error as Error);
       return new Response('Internal Server Error', { status: 500 });
     }
   }
