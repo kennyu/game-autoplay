@@ -166,10 +166,10 @@ export class BrowserAgent extends EventEmitter {
 
     const startTime = Date.now();
     const maxDuration = this.config.maxExecutionTimeMs;
+    const maxActions = this.config.maxActions;
     let actionCount = 0;
 
-    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms / ${Math.floor(maxDuration/1000)}s, unlimited actions)...`);
-    logger.info(`⏱️ Will stop at: ${new Date(startTime + maxDuration).toLocaleTimeString()}`);
+    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms, ${maxActions} actions)...`);
 
     // Find game container once at start
     const gameElements = await this.actions.findElements(
@@ -187,9 +187,7 @@ export class BrowserAgent extends EventEmitter {
     while (Date.now() - startTime < maxDuration) {
       try {
         actionCount++;
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        const remaining = Math.floor((maxDuration - (Date.now() - startTime)) / 1000);
-        logger.info(`\n--- Action Cycle #${actionCount} (${elapsed}s elapsed, ${remaining}s remaining) ---`);
+        logger.info(`\n--- Action Cycle #${actionCount} ---`);
 
         // STEP 1: LLM analyzes the screen and decides what to do
         // Pass full action history with success/failure info for better context
@@ -200,11 +198,9 @@ export class BrowserAgent extends EventEmitter {
             : action;
         });
         
-        logger.debug('Starting screen analysis...');
         const analysis: ScreenAnalysis = await this.analyzer.analyzeScreen(
           contextualHistory
         );
-        logger.debug('Screen analysis completed successfully');
 
         // Update state based on LLM's assessment
         if (analysis.gameState === 'menu' || analysis.gameState === 'loading') {
@@ -308,47 +304,23 @@ export class BrowserAgent extends EventEmitter {
 
         // Adaptive wait time based on game state
         const waitTime = analysis.gameState === 'playing' ? 1500 : 2500;
-        logger.debug(`Waiting ${waitTime}ms before next action...`);
         await this.actions.wait(waitTime);
-        
-        logger.debug(`Completed action ${actionCount}, continuing to next iteration...`);
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        logger.error(`❌ Error in gameplay loop (action ${actionCount}):`, errorMsg);
-        logger.error('Full error:', error);
-        
-        // Push a failed action result
-        actionResults.push({
-          action: 'Error in loop',
-          success: false,
-          error: errorMsg,
-          timestamp: new Date(),
-        });
-        
-        logger.warn('⚠️ Continuing after error...');
+        logger.warn('⚠️ Error in gameplay loop, continuing...');
         await this.actions.wait(1000);
       }
 
-      // Check if we should continue (redundant with while condition, but explicit)
-      const timeElapsed = Date.now() - startTime;
-      const timeRemaining = maxDuration - timeElapsed;
-      
-      logger.debug(`⏱️ Time check: elapsed=${Math.floor(timeElapsed/1000)}s, remaining=${Math.floor(timeRemaining/1000)}s, maxDuration=${Math.floor(maxDuration/1000)}s`);
-      
-      if (timeRemaining <= 0) {
-        logger.info(`⏱️ Time limit reached in inner check, exiting loop`);
+      // Check action limit
+      if (actionCount >= maxActions) {
+        logger.info(`✋ Reached action limit (${maxActions}), stopping loop`);
         break;
       }
-      
-      logger.debug(`Loop iteration complete. Actions: ${actionCount}, Time remaining: ${Math.floor(timeRemaining / 1000)}s`);
     }
-    
-    logger.info(`⏱️ While loop condition failed: Date.now()=${Date.now()}, startTime=${startTime}, elapsed=${Date.now() - startTime}ms, maxDuration=${maxDuration}ms`);
-
-    logger.info(`🏁 Gameplay loop ended. Total actions: ${actionCount}, Duration: ${Math.floor((Date.now() - startTime) / 1000)}s`);
 
     const elapsed = Date.now() - startTime;
-    const reason = `time limit (${maxDuration}ms)`;
+    const reason = actionCount >= maxActions 
+      ? `action limit (${maxActions})`
+      : `time limit (${maxDuration}ms)`;
     logger.info(
       `\n✅ CUA Agent completed. Stopped by ${reason}. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
     );

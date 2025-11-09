@@ -18,36 +18,11 @@ export const ScreenAnalysisSchema = z.object({
 
 export type ScreenAnalysis = z.infer<typeof ScreenAnalysisSchema>;
 
-export class ScreenAnalyzer {
-  private stagehand: any;
-
-  constructor(stagehand: any) {
-    this.stagehand = stagehand;
-  }
-
-  /**
-   * Analyze the current screen using LLM vision and reasoning
-   * This is where the agent "thinks" about what it sees
-   */
-  async analyzeScreen(actionHistory: string[] = []): Promise<ScreenAnalysis> {
-    try {
-      logger.info('🧠 Analyzing screen with LLM...');
-
-      // Build context about what we've tried before with success/failure feedback
-      const historyContext = actionHistory.length > 0
-        ? `\n\nPREVIOUS ACTIONS (most recent first):
-${actionHistory.slice(-5).reverse().map((action, i) => `${i + 1}. ${action}`).join('\n')}
-
-IMPORTANT:
-- If an action succeeded (✓), the page should have changed
-- If an action failed (✗), either the element doesn't exist or your understanding was wrong
-- Adapt your strategy based on what worked and what didn't
-- DO NOT repeat failed actions unless the situation has clearly changed
-- Consider what should logically happen NEXT based on these results`
-        : '\n\nThis is your first action on this page.';
-
-      // Ask the LLM to analyze the screen and decide what to do
-      const analysisPrompt = `You are a game-playing AI agent. Analyze the current screen and provide your assessment.
+/**
+ * Build the analysis prompt with action history
+ */
+function buildAnalysisPrompt(historyContext: string): string {
+  return `You are a game-playing AI agent. Analyze the current screen and provide your assessment.
 ${historyContext}
 
 CRITICAL RULES:
@@ -111,14 +86,40 @@ Examples:
 - Menu (DOM): "click on the play button"
 
 Respond ONLY with valid JSON, no other text.`;
+}
 
-      // Use Stagehand extract() with Zod schema (correct API: instruction, schema)
-      const analysis = await this.stagehand.extract(
-        analysisPrompt,
-        ScreenAnalysisSchema
-      );
+export class ScreenAnalyzer {
+  private stagehand: any;
 
-      logger.debug('LLM analysis:', analysis);
+  constructor(stagehand: any) {
+    this.stagehand = stagehand;
+  }
+
+  /**
+   * Analyze the current screen using LLM vision and reasoning
+   * This is where the agent "thinks" about what it sees
+   */
+  async analyzeScreen(actionHistory: string[] = []): Promise<ScreenAnalysis> {
+    try {
+      logger.info('🧠 Analyzing screen with LLM...');
+
+      // Build context about what we've tried before
+      const historyContext = actionHistory.length > 0
+        ? `\n\nPREVIOUS ACTIONS (most recent first):
+${actionHistory.slice(-5).reverse().map((action, i) => `${i + 1}. ${action}`).join('\n')}
+
+IMPORTANT:
+- If an action succeeded (✓), the page should have changed
+- If an action failed (✗), either the element doesn't exist or your understanding was wrong
+- Adapt your strategy based on what worked and what didn't
+- DO NOT repeat failed actions unless the situation has clearly changed
+- Consider what should logically happen NEXT based on these results`
+        : '\n\nThis is your first action on this page.';
+
+      const analysisPrompt = buildAnalysisPrompt(historyContext);
+
+      // Use Stagehand extract() with Zod schema
+      const analysis = await this.stagehand.extract(analysisPrompt, ScreenAnalysisSchema);
 
       logger.info(`🎮 Game State: ${analysis.gameState}`);
       logger.info(`🎯 Recommended: ${analysis.recommendedAction}`);
@@ -158,64 +159,5 @@ Respond ONLY with valid JSON, no other text.`;
     }
   }
 
-  /**
-   * Quick state check without full analysis (faster for state detection)
-   */
-  async quickStateCheck(): Promise<'menu' | 'playing' | 'game_over'> {
-    try {
-      const elements = await this.stagehand.observe(
-        'identify if this is a menu screen, active gameplay, or game over screen'
-      );
-
-      // Basic heuristic based on what we find
-      if (elements?.length === 0) {
-        return 'playing';
-      }
-
-      return 'menu'; // Default to menu if unsure
-    } catch (error) {
-      return 'menu';
-    }
-  }
-
-  /**
-   * Check if the game board is actually visible (handles canvas/shadow DOM)
-   */
-  async isGameBoardVisible(): Promise<boolean> {
-    try {
-      // Try to find any clickable game cells
-      const cells = await this.stagehand.observe(
-        'find clickable cells, squares, or spaces in a game grid'
-      );
-      
-      if (cells && cells.length > 0) {
-        logger.debug(`Found ${cells.length} game cells`);
-        return true;
-      }
-
-      logger.warn('⚠️ Game board not visible in accessibility tree (might be canvas-based)');
-      return false;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Validate if an action makes sense for the current state
-   */
-  validateAction(action: string, gameState: string): boolean {
-    const menuKeywords = ['start', 'play', 'begin', 'menu', 'new game'];
-    const gameKeywords = ['cell', 'square', 'move', 'key', 'arrow', 'click'];
-
-    const actionLower = action.toLowerCase();
-
-    if (gameState === 'menu') {
-      return menuKeywords.some((kw) => actionLower.includes(kw));
-    } else if (gameState === 'playing') {
-      return gameKeywords.some((kw) => actionLower.includes(kw));
-    }
-
-    return true; // Allow if unsure
-  }
 }
 

@@ -65,19 +65,26 @@ export class BrowserSession {
 
       await this.stagehand.init();
       
-      // Get raw Playwright page from context for console logging/cleanup
+      // Access the underlying Playwright page from context
       const stagehandAny = this.stagehand as any;
       const context = stagehandAny.context;
+      
       if (context && context.pages) {
         const pages = context.pages();
-        this.page = pages[0];
+        if (pages && pages.length > 0) {
+          this.page = pages[0];
+          logger.info('Got Playwright page from context');
+        }
       }
       
+      if (!this.page && stagehandAny.page) {
+        this.page = stagehandAny.page;
+        logger.info('Using Stagehand page directly');
+      }
+
       if (!this.page) {
         throw new BrowserError('Could not access page after initialization');
       }
-      
-      logger.info('Got Playwright page from context');
 
       logger.info('Stagehand session initialized successfully');
     } catch (error) {
@@ -130,11 +137,11 @@ export class BrowserSession {
   }
   
   /**
-   * Get Stagehand-enhanced page (has act, observe, extract methods)
+   * Get the Playwright page instance
    */
   getPage(): any {
     if (!this.page) {
-      throw new BrowserError('Stagehand page not initialized');
+      throw new BrowserError('Browser not initialized. Call initialize() first.');
     }
     return this.page;
   }
