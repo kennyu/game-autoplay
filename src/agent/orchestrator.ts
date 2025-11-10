@@ -22,22 +22,13 @@ export interface AgentResult {
   error?: string;
 }
 
-/**
- * Game states
- */
-enum GameState {
-  MENU = 'MENU',     // Looking for start button, play again, next level, etc.
-  GAME = 'GAME',     // Playing the game - making moves
-}
-
 export class BrowserAgent extends EventEmitter {
   private config: QAConfig;
   private session: BrowserSession | null = null;
   private actions: GameActions | null = null;
   private analyzer: ScreenAnalyzer | null = null;
   private consoleLogs: ConsoleLog[] = [];
-  private currentState: GameState = GameState.MENU;
-  private actionHistory: string[] = []; // Track what we've tried
+  private actionHistory: string[] = [];
 
   constructor(config: QAConfig) {
     super();
@@ -81,7 +72,7 @@ export class BrowserAgent extends EventEmitter {
       // Clean up page - remove ads and distractions
       await this.cleanupPage(page);
 
-      // Run gameplay loop for 15 seconds
+      // Run gameplay loop
       await this.gameplayLoop(actionResults);
 
       const duration = Date.now() - startTime;
@@ -166,10 +157,9 @@ export class BrowserAgent extends EventEmitter {
 
     const startTime = Date.now();
     const maxDuration = this.config.maxExecutionTimeMs;
-    const maxActions = this.config.maxActions;
     let actionCount = 0;
 
-    logger.info(`🤖 Starting CUA Agent (max ${maxDuration}ms, ${maxActions} actions)...`);
+    logger.info(`🤖 Starting gameplay loop (max duration: ${maxDuration}ms)...`);
 
     // Find game container once at start
     const gameElements = await this.actions.findElements(
@@ -202,13 +192,6 @@ export class BrowserAgent extends EventEmitter {
           contextualHistory
         );
 
-        // Update state based on LLM's assessment
-        if (analysis.gameState === 'menu' || analysis.gameState === 'loading') {
-          this.currentState = GameState.MENU;
-        } else {
-          this.currentState = GameState.GAME;
-        }
-
         // STEP 2: Validate the LLM's recommended action
         const actionToTake = analysis.recommendedAction;
         
@@ -226,7 +209,7 @@ export class BrowserAgent extends EventEmitter {
           }
         }
 
-        logger.info(`[${this.currentState}] 🎯 LLM Decision: ${analysis.recommendedAction}`);
+        logger.info(`🎯 LLM Decision: ${analysis.recommendedAction}`);
         this.emit('log', { level: 'info', message: `LLM Decision: ${analysis.recommendedAction}`, timestamp: new Date() });
         
         logger.info(`💭 Reasoning: ${analysis.reasoning}`);
@@ -306,23 +289,15 @@ export class BrowserAgent extends EventEmitter {
         const waitTime = analysis.gameState === 'playing' ? 1500 : 2500;
         await this.actions.wait(waitTime);
       } catch (error) {
-        logger.warn('⚠️ Error in gameplay loop, continuing...');
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.warn(`⚠️ Error in gameplay loop: ${errorMsg}`);
         await this.actions.wait(1000);
-      }
-
-      // Check action limit
-      if (actionCount >= maxActions) {
-        logger.info(`✋ Reached action limit (${maxActions}), stopping loop`);
-        break;
       }
     }
 
     const elapsed = Date.now() - startTime;
-    const reason = actionCount >= maxActions 
-      ? `action limit (${maxActions})`
-      : `time limit (${maxDuration}ms)`;
     logger.info(
-      `\n✅ CUA Agent completed. Stopped by ${reason}. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
+      `\n✅ Gameplay completed. Duration: ${elapsed}ms, Actions: ${actionResults.length}`
     );
   }
 

@@ -131,20 +131,18 @@ IMPORTANT:
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('❌ Screen analysis failed:', errorMsg);
       
-      // Log specific error types
+      // Log specific error details to help debugging
       if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
-        logger.error('🔑 OpenAI API authentication failed - check your OPENAI_API_KEY');
+        logger.error('🔑 API authentication failed - check your OPENAI_API_KEY');
       } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-        logger.error('⏳ OpenAI API rate limit - waiting before retry');
+        logger.error('⏳ API rate limit exceeded - consider reducing request frequency');
       } else if (errorMsg.includes('model')) {
-        logger.error('🤖 Model error - check MODEL_NAME in config (currently using gpt-5)');
+        logger.error('🤖 Model error - verify MODEL_NAME is correct in config');
       } else if (errorMsg.includes('schema') || errorMsg.includes('validation')) {
-        logger.error('📋 Schema validation failed - LLM response format incorrect');
-      } else {
-        logger.error('💥 Unexpected error:', error);
+        logger.error('📋 Schema validation failed - LLM returned unexpected format');
       }
       
-      logger.warn('⚠️ Using fallback action - blind click attempt');
+      logger.warn('⚠️ Using fallback action due to analysis failure');
       
       // Fallback to basic observation if analysis fails
       return {

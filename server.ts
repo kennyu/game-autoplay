@@ -10,26 +10,18 @@ import { DashboardServer } from './src/server/index.js';
 import { JobQueue } from './src/server/queue.js';
 import { JobRunner } from './src/server/runner.js';
 import { logger } from './src/utils/logger.js';
-import { loadConfig } from './src/config/index.js';
 
 async function main() {
   logger.info('🚀 Starting Game QA Agent Dashboard...');
 
-  // Load configuration
-  const config = loadConfig();
-
-  // Create server (use PORT env var for cloud deployments like Fly.io)
-  const port = parseInt(process.env.PORT || '3000', 10);
+  // Create server
   const server = new DashboardServer({
-    port,
+    port: 3000,
     publicDir: './public',
   });
 
-  // Create job queue with max concurrent jobs based on browser mode
+  // Create job queue
   const queue = new JobQueue();
-  const maxConcurrent = config.maxConcurrentJobs[config.browserMode];
-  queue.setMaxConcurrent(maxConcurrent);
-  logger.info(`📊 Configured for ${maxConcurrent} concurrent jobs in ${config.browserMode} mode`);
 
   // Register API handlers
   server.registerApiHandler('/api/run', async (req: Request) => {
@@ -111,6 +103,7 @@ async function main() {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
+      logger.error('Error reading results:', error);
       return new Response(JSON.stringify({ runs: [] }), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -138,7 +131,7 @@ async function main() {
   });
 
   logger.info('✅ Dashboard ready!');
-  logger.info(`📊 Open http://localhost:${port} in your browser`);
+  logger.info('📊 Open http://localhost:3000 in your browser');
 }
 
 main().catch((error) => {
