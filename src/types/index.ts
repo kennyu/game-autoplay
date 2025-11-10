@@ -37,6 +37,15 @@ export interface Issue {
   evidence?: string;
 }
 
+export interface ActionResult {
+  success: boolean;
+  action: string;
+  timestamp: Date;
+  error?: string;
+  screenshotBefore?: string;
+  screenshotAfter?: string;
+}
+
 export interface QAResult {
   gameUrl: string;
   status: 'pass' | 'fail';
@@ -50,6 +59,7 @@ export interface QAResult {
   duration: number;
   timestamp: Date;
   screenshots: string[];
+  actions?: ActionResult[];  // Detailed action history
   metadata: {
     actionCount: number;
     successfulActions: number;

@@ -225,6 +225,8 @@ export class JobRunner {
         actionCount: result.metadata.actionCount,
         successfulActions: result.metadata.successfulActions,
         consoleErrors: result.metadata.consoleErrors,
+        // Actions - detailed action history
+        actions: result.actions,
         // Screenshots
         screenshots: result.screenshots,
         screenshotCount: result.screenshots.length,

@@ -119,6 +119,7 @@ export class GameEvaluator {
       duration: result.duration,
       timestamp: new Date(),
       screenshots: result.screenshots,
+      actions: result.actions,  // Include detailed action history
       metadata: {
         actionCount: result.actions.length,
         successfulActions,
@@ -174,6 +175,7 @@ export class GameEvaluator {
       duration: result.duration,
       timestamp: new Date(),
       screenshots: result.screenshots,
+      actions: result.actions,  // Include detailed action history
       metadata: {
         actionCount: result.actions.length,
         successfulActions: result.actions.filter(a => a.success).length,

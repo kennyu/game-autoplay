@@ -133,6 +133,7 @@ export class BrowserAgent extends EventEmitter {
           duration,
           timestamp: new Date(),
           screenshots: [],
+          actions: actionResults,  // Include action history even on failure
           metadata: {
             actionCount: actionResults.length,
             successfulActions: actionResults.filter(a => a.success).length,

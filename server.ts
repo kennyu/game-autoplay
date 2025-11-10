@@ -14,6 +14,13 @@ import { logger } from './src/utils/logger.js';
 async function main() {
   logger.info('🚀 Starting Game QA Agent Dashboard...');
 
+  // Ensure output directory exists
+  const fs = await import('fs');
+  if (!fs.existsSync('./output')) {
+    fs.mkdirSync('./output', { recursive: true });
+    logger.info('Created output directory');
+  }
+
   // Create server
   const server = new DashboardServer({
     port: 3000,
@@ -78,7 +85,7 @@ async function main() {
       
       // Read all directories in output folder
       const entries = fs.readdirSync(outputDir);
-      const runs = [];
+      const runs: any[] = [];
       
       for (const entry of entries) {
         const fullPath = path.join(outputDir, entry);
@@ -97,7 +104,7 @@ async function main() {
       }
       
       // Sort by date, most recent first
-      runs.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+      runs.sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
       
       return new Response(JSON.stringify({ runs }), {
         headers: { 'Content-Type': 'application/json' },
@@ -108,6 +115,34 @@ async function main() {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+  });
+
+  // SSE endpoint - Stream real-time job events
+  server.registerApiHandler('/api/stream/:jobId', async (req: Request) => {
+    const url = new URL(req.url);
+    const pathParts = url.pathname.split('/');
+    const jobId = pathParts[pathParts.length - 1];
+    
+    if (!jobId) {
+      return new Response(JSON.stringify({ error: 'Job ID required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    
+    // Check if job exists
+    const job = queue.getJob(jobId);
+    if (!job) {
+      return new Response(JSON.stringify({ error: 'Job not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    
+    logger.info(`SSE stream requested for job: ${jobId}`);
+    
+    // Create SSE stream for this specific job
+    return server.createSSEStream(jobId);
   });
 
   // Start server

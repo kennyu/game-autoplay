@@ -14,8 +14,15 @@ export interface ServerConfig {
   publicDir: string;
 }
 
+interface SSEClient {
+  id: string;
+  controller: ReadableStreamDefaultController;
+  jobId?: string; // Optional: if client is streaming a specific job
+}
+
 export class DashboardServer {
   private clients: Set<ServerWebSocket<WebSocketData>> = new Set();
+  private sseClients: Map<string, SSEClient> = new Map();
   private config: ServerConfig;
   private apiHandlers: Map<string, (req: Request) => Promise<Response>> = new Map();
 
@@ -100,13 +107,31 @@ export class DashboardServer {
    * Handle API requests
    */
   private async handleApiRequest(pathname: string, req: Request): Promise<Response> {
-    // Check for registered handlers
-    const handler = this.apiHandlers.get(pathname);
-    if (handler) {
-      return handler(req);
+    // Check for exact match first
+    const exactHandler = this.apiHandlers.get(pathname);
+    if (exactHandler) {
+      return exactHandler(req);
+    }
+    
+    // Check for pattern matches (e.g., /api/stream/:jobId)
+    for (const [pattern, handler] of this.apiHandlers) {
+      if (pattern.includes(':')) {
+        const regex = this.patternToRegex(pattern);
+        if (regex.test(pathname)) {
+          return handler(req);
+        }
+      }
     }
 
     return new Response('Not Found', { status: 404 });
+  }
+  
+  /**
+   * Convert path pattern to regex (e.g., /api/stream/:jobId -> /api/stream/[^/]+)
+   */
+  private patternToRegex(pattern: string): RegExp {
+    const regexPattern = pattern.replace(/:[^/]+/g, '[^/]+');
+    return new RegExp(`^${regexPattern}$`);
   }
 
   /**
@@ -118,17 +143,75 @@ export class DashboardServer {
   }
 
   /**
-   * Broadcast message to all connected clients
+   * Broadcast message to all connected clients (WebSocket and SSE)
    */
   broadcast(message: any) {
+    // Send to WebSocket clients
     const payload = JSON.stringify(message);
     for (const client of this.clients) {
       try {
         client.send(payload);
       } catch (error) {
-        logger.error('Failed to send to client', error as Error);
+        logger.error('Failed to send to WebSocket client', error as Error);
       }
     }
+    
+    // Send to SSE clients
+    for (const [clientId, sseClient] of this.sseClients) {
+      try {
+        // Filter by jobId if SSE client is subscribed to a specific job
+        if (sseClient.jobId && message.data?.jobId !== sseClient.jobId) {
+          continue; // Skip if message is for a different job
+        }
+        
+        this.sendSSEEvent(sseClient.controller, message.type, message.data);
+      } catch (error) {
+        logger.error(`Failed to send to SSE client ${clientId}`, error as Error);
+        // Remove dead client
+        this.sseClients.delete(clientId);
+      }
+    }
+  }
+  
+  /**
+   * Send SSE event to a client
+   */
+  private sendSSEEvent(controller: ReadableStreamDefaultController, type: string, data: any) {
+    const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+    controller.enqueue(new TextEncoder().encode(message));
+  }
+  
+  /**
+   * Create SSE stream for a client
+   */
+  createSSEStream(jobId?: string): Response {
+    const clientId = crypto.randomUUID();
+    
+    const stream = new ReadableStream({
+      start: (controller) => {
+        // Register client
+        this.sseClients.set(clientId, { id: clientId, controller, jobId });
+        logger.info(`SSE client connected: ${clientId}${jobId ? ` (job: ${jobId})` : ''}`);
+        
+        // Send initial connection message
+        this.sendSSEEvent(controller, 'connected', { clientId, jobId });
+      },
+      cancel: () => {
+        // Clean up when client disconnects
+        this.sseClients.delete(clientId);
+        logger.info(`SSE client disconnected: ${clientId}`);
+      },
+    });
+    
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
+      },
+    });
   }
 
   /**
