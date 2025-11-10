@@ -1,7 +1,7 @@
 # Dockerfile for Game Autoplay Agent
 # Optimized for Fly.io deployment with Bun + Playwright
 
-FROM oven/bun:1.1.13-debian AS base
+FROM oven/bun:1.2-debian AS base
 WORKDIR /app
 
 # Install system dependencies for Playwright/Chromium
@@ -32,7 +32,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
-COPY package.json bun.lockb ./
+COPY package.json ./
+COPY bun.lock[b] ./
 
 # Install dependencies
 RUN bun install --production

@@ -1,6 +1,6 @@
 # Fly.io configuration for Game Autoplay Agent Dashboard
 
-app = "game-autoplay-dashboard"
+app = "game-autoplay"
 primary_region = "dfw"  # Dallas - change to your preferred region
 
 [build]
@@ -12,7 +12,7 @@ primary_region = "dfw"  # Dallas - change to your preferred region
   BROWSER_MODE = "LOCAL"  # Use LOCAL browser on Fly machine
   HEADLESS = "true"       # Always headless in production
   MODEL_PROVIDER = "openai"
-  MODEL_NAME = "gpt-4.1-mini"  # More cost-effective for production
+  MODEL_NAME = "gpt-5"  # More cost-effective for production
 
 # HTTP service configuration
 [[services]]
@@ -47,6 +47,8 @@ primary_region = "dfw"  # Dallas - change to your preferred region
 # [mounts]
 #   source = "game_autoplay_data"
 #   destination = "/app/output"
+
+
 
 
 
